@@ -1,0 +1,375 @@
+#!/usr/bin/ruby -w
+#
+# Copyright Mark Longair (c) 2002, 2005, Reuben Thomas (c) 2005, 2006.
+#
+# This is a simple script for fetching mail from POP3 accounts.
+# On a Debian system, you'll need the following packages:
+#
+#   ruby
+#   libruby
+#   libopenssl-ruby
+#
+# See http://mythic-beasts.com/~mark/software/stand/
+# for further remarks.
+#
+
+$program_name = 'stand'
+
+require 'getoptlong'
+require 'yaml'
+require 'socket'
+require 'net/pop'
+require 'openssl'
+require 'timeout'
+
+# FIXME: I don't understand the recent changes that have been made to
+# InternetMessageIO and broke the old version of these two classes, so
+# while this seems to work at the moment, I expect it to break at any
+# time.
+
+module Net
+
+  class SSLIO < InternetMessageIO
+
+    def SSLIO.old_open(addr, port, open_timeout = 30, read_timeout = 30, debug_output = nil)
+
+      tcp_socket = timeout(open_timeout) { TCPsocket.new(addr, port) }
+
+      @ssl_context = OpenSSL::SSL::SSLContext.new()
+
+      if $ssl_verify
+        @ssl_context.ca_path = '/etc/ssl/certs'
+        @ssl_context.verify_mode = OpenSSL::SSL::VERIFY_PEER
+      else
+        @ssl_context.verify_mode = OpenSSL::SSL::VERIFY_NONE
+      end
+
+      socket = OpenSSL::SSL::SSLSocket.new(tcp_socket, @ssl_context)
+
+      socket.connect
+
+      io = new(socket)
+      io.read_timeout = read_timeout
+      io.debug_output = debug_output
+      io
+
+    end
+
+  end
+
+end
+
+# ----------------------------------------------------------------------
+#
+# POP3 over SSL class
+
+module Net
+
+  class POP3s < POP3
+
+    def self.port
+      '995'
+    end
+
+    def POP3s.socket_type
+      SSLIO
+    end
+
+  end
+
+end
+
+# ----------------------------------------------------------------------
+#
+# Command line argument parsing...
+
+# Some default values...
+
+$configuration_file = "#{ENV['HOME']}/.stand.yaml"
+$configuration_file_pretty = "~/.stand.yaml"
+
+def usage
+
+  print <<EOF
+Usage: #{$program_name} [OPTION]...
+
+  -h, --help           Display this message and exit.
+  -k, --keep           Don't delete messages on server.
+  -n, --no-ssl-verify  Don't verify the peer's certificate when using SSL.
+  -f <FILENAME>, --configuration-file=<FILENAME>
+                       Specify the configuration file to use.
+                       (default: #{$configuration_file_pretty})
+  -b <N>, --break-every=<N>
+                       Disconnect and reconnect every <N> messages.
+EOF
+
+end
+
+options = GetoptLong.new(
+  [ "--help", "-h", GetoptLong::NO_ARGUMENT ],
+  [ "--keep", "-k", GetoptLong::NO_ARGUMENT ],
+  [ "--no-ssl-verify", "-n", GetoptLong::NO_ARGUMENT ],
+  [ "--configuration-file", "-f", GetoptLong::REQUIRED_ARGUMENT ],
+  [ "--break-every", "-b", GetoptLong::REQUIRED_ARGUMENT ]
+)
+
+$keep = false
+$ssl_verify = true
+$break_every = nil
+
+begin
+
+  options.each do |opt, arg|
+
+    case opt
+    when "--help"
+      usage
+      exit
+    when "--keep"
+      $keep = true
+    when "--no-ssl-verify"
+      $ssl_verify = false
+    when "--configuration-file"
+      $configuration_file = arg
+    when "--break-every"
+      $break_every = Integer(arg)
+    end
+
+  end
+
+rescue
+
+  print "Bad command line option: " + $! + "\n"
+  usage
+  exit
+
+end
+
+# ----------------------------------------------------------------------
+
+# A fairly idiotic progress class.
+
+class Progress
+
+  def initialize(maximum)
+    @maximum = maximum
+    @current_value = 0
+  end
+
+  def increase_by(i)
+    set @current_value + i
+  end
+
+  def set(v)
+    block_change = (v / 1024) - (@current_value / 1024)
+    if block_change >= 0
+      (1..block_change).each { print "." }
+      $stdout.flush
+    else
+      backspaces = - block_change
+      (1..backspaces).each { print "\b" }
+      $stdout.flush
+    end
+    @current_value = v
+  end
+
+end
+
+# ----------------------------------------------------------------------
+
+# This class deals with connecting to a POP3 server, and fetching the
+# mail from it.
+
+class POP3Account
+
+  attr_accessor :host, :user, :port
+
+  attr_reader :command
+
+  def initialize(host, user, password, use_ssl, use_apop, port, command)
+    @host = host
+    @user = user
+    @password = password
+    @use_ssl = use_ssl
+    @use_apop = use_apop
+    @port = port
+    @command = command
+  end
+
+  def to_s
+    "#{@user} at #{@host}:#{@port}#{ @use_ssl ? ' (SSL)' : ''}"
+  end
+
+  # Fetch all the new messages from this POP3 account, deleting
+  # successfully downloaded messages.
+
+  def fetch_all
+
+    # Choose correct POP class
+
+    if @use_ssl
+      pop3_class = Net::POP3s
+    else
+      pop3_class = Net::POP3
+    end
+
+    # Process all the messages
+
+    i = 0
+    total = 0
+
+    while true
+
+      pop3_class.start(@host, @port, @user, @password, @use_apop) do |pop|
+
+        if i == 0 and not pop.mails.empty?
+          total = pop.n_mails
+          plural = total != 1
+          puts "  There " + (plural ? "are" : "is") + " #{total} message" +
+            (plural ? "s" : "") + " available."
+        end
+
+        # Number of mails can increase while connected, so need to
+        # check >= total.  (This should not happen according to RFC
+        # 1939, but does happen in practice.)
+        if i >= total
+          if i == 0
+            puts "  No mail."
+          end
+          return
+        end
+
+        pop.each_mail do |m|
+
+          i += 1
+
+          print "  Retrieving message #{i} of #{total} [#{m.length} bytes]: "
+
+          progress = Progress.new(m.size)
+
+          # Fetch the message...
+          message = ""
+          m.pop do |chunk|
+            chunk.gsub!(/\r\n/, "\n")
+            message << chunk
+            progress.increase_by chunk.length
+          end
+
+          # Deliver the message...
+          Kernel.open("|-", "w+") do |f|
+            if f
+              f.write message
+            else
+              begin
+                exec @command
+              rescue
+                raise "Couldn't exec \"#{@command}\": #{$!}\n"
+              end
+            end
+          end
+
+          unless $?.success?
+            raise "The command \"#{@command}\" failed with exit code #{$?.exitstatus}"
+          end
+
+          # We've successfully dealt with the message now...
+          unless $keep
+            print " [Deleting]"
+            m.delete
+          end
+          puts
+
+          if $break_every && (i % $break_every == 0)
+            break
+          end
+
+          # FIXME: Need to rescue just errors
+          #rescue
+          #  puts "Error reading message #{i}: " + $!
+          #end
+
+        end
+      end
+
+    end
+
+  end
+
+end
+
+# ----------------------------------------------------------------------
+
+begin
+
+  # Read in the configuration file...
+
+  accounts = open($configuration_file, "r") { |f| YAML.load(f) }
+  raise "No accounts specified in configuration file." if accounts.length == 0
+
+  # This is the main loop.  Go through every account, fetching all the
+  # new mail...
+
+  accounts.each_index do |i|
+
+    a = accounts[i]
+
+    # Do some quick checks on what we've just parsed...
+
+    valid_account_properties = ['Host', 'User', 'Pass', 'Command', 'SSL', 'APOP', 'Port']
+
+    (a.keys - valid_account_properties).each do |property|
+      puts "Warning: in account #{i + 1}, the unknown account property `#{property}' was ignored."
+    end
+
+    ['Host', 'User', 'Pass'].each do |required|
+      raise "Missing `#{required}:' line in account #{i + 1}" unless a[required]
+      unless a[required].class == String
+        raise "The value in the `#{required}:' property of account #{i + 1} " +
+          "(`#{a[required].to_s}' was not interpreted as a string; you " +
+          "may need to quote it"
+      end
+    end
+
+    ['SSL', 'APOP'].each do |boolean|
+      if a['boolean']
+        unless [ TrueClass, FalseClass ].include? a[boolean].class
+          raise "In account #{i + 1}, `#{boolean}' property must be `yes', `no', `true' or `false'"
+        end
+      end
+    end
+
+    if a['Port']
+      unless a['Port'].class == Fixnum
+        raise "In account #{i + 1} the Port property must be an integer (not `#{a['Port']}\')"
+      end
+    else
+      a['Port'] = a['SSL'] ? 995 : 110
+    end
+
+    unless a['Command']
+      a['Command'] = 'procmail -f-'
+    end
+
+    account = POP3Account.new(a['Host'], a['User'], a['Pass'], a['SSL'],
+                              a['APOP'], a['Port'], a['Command'])
+
+    begin
+      puts "Checking account: #{account}"
+      puts "  Piping mail to the command: #{account.command}"
+      account.fetch_all
+    rescue Interrupt => i_exception
+      puts "Interrupt Exception from fetch_all, backtrace:\n" + i_exception.backtrace.join("\n")
+
+    rescue
+      puts "  Error fetching mail from account `#{account}': " + $!
+    end
+
+  end
+
+rescue Interrupt
+  puts "Interrupt received: exiting."
+
+rescue
+  puts "Fatal error: " + $!
+
+end
