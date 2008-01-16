@@ -198,6 +198,27 @@ class POP3Account
     "#{@user} at #{@host}:#{@port}#{ @use_ssl ? ' (SSL)' : ''}"
   end
 
+  def account_uidl(uidl)
+    "#{@user}@#{@host}:#{@port}##{uidl}"
+  end
+
+  # These three methods manipulate the UIDL database.
+
+  def add_uidl_to_db(u)
+    $db.execute( "INSERT INTO uidls VALUES (?)", account_uidl(u) )
+  end
+
+  def delete_uidls_from_db(a)
+    a.each do |u|
+      d.execute( "DELETE FROM uidls WHERE uidl = ?", account_uidl(u) )
+    end
+  end
+
+  def db_has_uidl?(u)
+    rows = $db.execute( "SELECT uidl FROM uidls WHERE uidl = ?", account_uidl(u) )
+    rows.length > 0
+  end
+
   # Fetch all the new messages from this POP3 account, deleting
   # successfully downloaded messages.
 
@@ -294,29 +315,6 @@ end
 
 # ----------------------------------------------------------------------
 
-# These three functions manipulate the UIDL database.
-
-def add_uidl_to_db(u)
-  $db.transaction do |d|
-    d.execute( "INSERT INTO uidls VALUES (?)", u )
-  end
-end
-
-def delete_uidls_from_db(a)
-  $db.transaction do |d|
-    a.each do |u|
-      d.execute( "DELETE FROM uidls WHERE uidl = ?", u )
-    end
-  end
-end
-
-def db_has_uidl?(u)
-  rows = nil
-  $db.transaction do |d|
-    rows = d.execute( "SELECT uidl FROM uidls WHERE uidl = ?", u )
-  end
-  rows.length > 0
-end
 
 # ----------------------------------------------------------------------
 
