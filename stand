@@ -1,4 +1,4 @@
-#!/usr/bin/ruby -w
+#!/usr/bin/ruby
 #
 # Copyright Mark Longair (c) 2002, 2005, Reuben Thomas (c) 2005, 2006.
 #
@@ -197,25 +197,25 @@ class POP3Account
   def to_s
     "#{@user} at #{@host}:#{@port}#{ @use_ssl ? ' (SSL)' : ''}"
   end
-
+  
   def account_uidl(uidl)
     "#{@user}@#{@host}:#{@port}##{uidl}"
   end
 
   # These three methods manipulate the UIDL database.
 
-  def add_uidl_to_db(u)
-    $db.execute( "INSERT INTO uidls VALUES (?)", account_uidl(u) )
+  def add_uidl_to_db(db,u)
+    db.execute( "INSERT INTO uidls VALUES (?)", account_uidl(u) )
   end
 
-  def delete_uidls_from_db(a)
+  def delete_uidls_from_db(db,a)
     a.each do |u|
-      d.execute( "DELETE FROM uidls WHERE uidl = ?", account_uidl(u) )
+      db.execute( "DELETE FROM uidls WHERE uidl = ?", account_uidl(u) )
     end
   end
 
-  def db_has_uidl?(u)
-    rows = $db.execute( "SELECT uidl FROM uidls WHERE uidl = ?", account_uidl(u) )
+  def db_has_uidl?(db,u)
+    rows = db.execute( "SELECT uidl FROM uidls WHERE uidl = ?", account_uidl(u) )
     rows.length > 0
   end
 
@@ -238,79 +238,83 @@ class POP3Account
     total = 0
     delete_list = []
 
-    pop3_class.start(@host, @port, @user, @password, @use_apop) do |pop|
-
-      if pop.mails.empty?
-        puts "  No mail."
-        return
-      else
-        total = pop.n_mails
-        plural = total != 1
-        puts "  There " + (plural ? "are" : "is") + " #{total} message" +
-          (plural ? "s" : "") + " available."
-      end
-
-      pop.each_mail do |m|
-
-        i += 1
+    $db.transaction do |db|
+      
+      pop3_class.start(@host, @port, @user, @password, @use_apop) do |pop|
         
-        print "  Retrieving message #{i} of #{total} [#{m.length} bytes]: "
+        if pop.mails.empty?
+          puts "  No mail."
+          return
+        else
+          total = pop.n_mails
+          plural = total != 1
+          puts "  There " + (plural ? "are" : "is") + " #{total} message" +
+            (plural ? "s" : "") + " available."
+        end
         
-        uidl = m.uidl
-        if db_has_uidl? uidl
-          if $keep
-            puts " [Skipping]"
+        pop.each_mail do |m|
+          
+          i += 1
+          
+          print "  Retrieving message #{i} of #{total} [#{m.length} bytes]: "
+          
+          uidl = m.uidl
+          if db_has_uidl? db, uidl
+            if $keep
+              puts " [Skipping]"
+            else
+              puts " [Skipping and deleting]"
+              m.delete
+              delete_list.push uidl
+            end
+            next
+          end
+          
+          progress = Progress.new(m.size)
+          
+          # Fetch the message...
+          message = ""
+          m.pop do |chunk|
+            chunk.gsub!(/\r\n/, "\n")
+            message << chunk
+            progress.increase_by chunk.length
+          end
+          
+          # Deliver the message...
+          Kernel.open("|-", "w+") do |f|
+            if f
+              f.write message
+            else
+              begin
+                exec @command
+              rescue
+                raise "Couldn't exec \"#{@command}\": #{$!}\n"
+              end
+            end
+          end
+          
+          if $?.success?
+            add_uidl_to_db db, uidl
           else
-            puts " [Skipping and deleting]"
+            raise "The command \"#{@command}\" failed with exit code #{$?.exitstatus}"
+          end
+          
+          # We've successfully dealt with the message now...
+          unless $keep
+            print " [Deleting]"
             m.delete
             delete_list.push uidl
           end
-          next
+          puts
+          
         end
-
-        progress = Progress.new(m.size)
-        
-        # Fetch the message...
-        message = ""
-        m.pop do |chunk|
-          chunk.gsub!(/\r\n/, "\n")
-          message << chunk
-          progress.increase_by chunk.length
-        end
-        
-        # Deliver the message...
-        Kernel.open("|-", "w+") do |f|
-          if f
-            f.write message
-          else
-            begin
-              exec @command
-            rescue
-                raise "Couldn't exec \"#{@command}\": #{$!}\n"
-            end
-          end
-        end
-        
-        if $?.success?
-          add_uidl_to_db uidl
-        else
-          raise "The command \"#{@command}\" failed with exit code #{$?.exitstatus}"
-        end
-        
-        # We've successfully dealt with the message now...
-        unless $keep
-          print " [Deleting]"
-          m.delete
-          delete_list.push uidl
-        end
-        puts
-        
       end
+      
+      delete_uidls_from_db db, delete_list
+      
     end
-
-    delete_uidls_from_db delete_list
-
   end
+
 end
 
 # ----------------------------------------------------------------------
