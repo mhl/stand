@@ -1,4 +1,4 @@
-#!/usr/bin/ruby -w
+#!/usr/bin/ruby
 #
 # Copyright Mark Longair (c) 2002, 2005, Reuben Thomas (c) 2005-2007.
 #
@@ -8,6 +8,7 @@
 #   ruby
 #   libruby
 #   libopenssl-ruby
+#   libsqlite3-ruby
 #
 # See http://mythic-beasts.com/~mark/software/stand/
 # for further remarks.
@@ -21,6 +22,7 @@ require 'socket'
 require 'net/pop'
 require 'openssl'
 require 'timeout'
+require 'sqlite3'
 
 # FIXME: I don't understand the recent changes that have been made to
 # InternetMessageIO and broke the old version of these two classes, so
@@ -87,6 +89,7 @@ end
 
 $configuration_file = "#{ENV['HOME']}/.stand.yaml"
 $configuration_file_pretty = "~/.stand.yaml"
+$uidl_database_filename = "#{ENV['HOME']}/.stand-uidls"
 
 def usage
 
@@ -99,8 +102,6 @@ Usage: #{$program_name} [OPTION]...
   -f <FILENAME>, --configuration-file=<FILENAME>
                        Specify the configuration file to use.
                        (default: #{$configuration_file_pretty})
-  -b <N>, --break-every=<N>
-                       Disconnect and reconnect every <N> messages.
 EOF
 
 end
@@ -109,8 +110,7 @@ options = GetoptLong.new(
   [ "--help", "-h", GetoptLong::NO_ARGUMENT ],
   [ "--keep", "-k", GetoptLong::NO_ARGUMENT ],
   [ "--no-ssl-verify", "-n", GetoptLong::NO_ARGUMENT ],
-  [ "--configuration-file", "-f", GetoptLong::REQUIRED_ARGUMENT ],
-  [ "--break-every", "-b", GetoptLong::REQUIRED_ARGUMENT ]
+  [ "--configuration-file", "-f", GetoptLong::REQUIRED_ARGUMENT ]
 )
 
 $keep = false
@@ -131,8 +131,6 @@ begin
       $ssl_verify = false
     when "--configuration-file"
       $configuration_file = arg
-    when "--break-every"
-      $break_every = Integer(arg)
     end
 
   end
@@ -199,6 +197,27 @@ class POP3Account
   def to_s
     "#{@user} at #{@host}:#{@port}#{ @use_ssl ? ' (SSL)' : ''}"
   end
+  
+  def account_uidl(uidl)
+    "#{@user}@#{@host}:#{@port}##{uidl}"
+  end
+
+  # These three methods manipulate the UIDL database.
+
+  def add_uidl_to_db(db,u)
+    db.execute( "INSERT INTO uidls VALUES (?)", account_uidl(u) )
+  end
+
+  def delete_uidls_from_db(db,a)
+    a.each do |u|
+      db.execute( "DELETE FROM uidls WHERE uidl = ?", account_uidl(u) )
+    end
+  end
+
+  def db_has_uidl?(db,u)
+    rows = db.execute( "SELECT uidl FROM uidls WHERE uidl = ?", account_uidl(u) )
+    rows.length > 0
+  end
 
   # Fetch all the new messages from this POP3 account, deleting
   # successfully downloaded messages.
@@ -217,36 +236,42 @@ class POP3Account
 
     i = 0
     total = 0
+    delete_list = []
 
-    while true
-
+    $db.transaction do |db|
+      
       pop3_class.start(@host, @port, @user, @password, @use_apop) do |pop|
-
-        if i == 0 and not pop.mails.empty?
+        
+        if pop.mails.empty?
+          puts "  No mail."
+          return
+        else
           total = pop.n_mails
           plural = total != 1
           puts "  There " + (plural ? "are" : "is") + " #{total} message" +
             (plural ? "s" : "") + " available."
         end
-
-        # Number of mails can increase while connected, so need to
-        # check >= total.  (This should not happen according to RFC
-        # 1939, but does happen in practice.)
-        if i >= total
-          if i == 0
-            puts "  No mail."
-          end
-          return
-        end
-
+        
         pop.each_mail do |m|
-
+          
           i += 1
-
+          
           print "  Retrieving message #{i} of #{total} [#{m.length} bytes]: "
-
+          
+          uidl = m.uidl
+          if db_has_uidl? db, uidl
+            if $keep
+              puts " [Skipping]"
+            else
+              puts " [Skipping and deleting]"
+              m.delete
+              delete_list.push uidl
+            end
+            next
+          end
+          
           progress = Progress.new(m.size)
-
+          
           # Fetch the message...
           message = ""
           m.pop do |chunk|
@@ -254,7 +279,7 @@ class POP3Account
             message << chunk
             progress.increase_by chunk.length
           end
-
+          
           # Deliver the message...
           Kernel.open("|-", "w+") do |f|
             if f
@@ -267,39 +292,45 @@ class POP3Account
               end
             end
           end
-
-          unless $?.success?
+          
+          if $?.success?
+            add_uidl_to_db db, uidl
+          else
             raise "The command \"#{@command}\" failed with exit code #{$?.exitstatus}"
           end
-
+          
           # We've successfully dealt with the message now...
           unless $keep
             print " [Deleting]"
             m.delete
+            delete_list.push uidl
           end
           puts
-
-          if $break_every && (i % $break_every == 0)
-            break
-          end
-
-          # FIXME: Need to rescue just errors
-          #rescue
-          #  puts "Error reading message #{i}: " + $!
-          #end
-
+          
         end
       end
-
+      
+      delete_uidls_from_db db, delete_list
+      
     end
-
   end
 
 end
 
 # ----------------------------------------------------------------------
 
+
+# ----------------------------------------------------------------------
+
 begin
+
+  # Make sure that the UIDL database file is present.
+
+  $db = SQLite3::Database.new($uidl_database_filename)
+
+  $db.transaction do |d|
+    d.execute( "CREATE TABLE IF NOT EXISTS uidls ( uidl TEXT PRIMARY KEY )" )
+  end
 
   # Read in the configuration file...
 
@@ -359,7 +390,6 @@ begin
       account.fetch_all
     rescue Interrupt => i_exception
       puts "Interrupt Exception from fetch_all, backtrace:\n" + i_exception.backtrace.join("\n")
-
     rescue
       puts "  Error fetching mail from account `#{account}': " + $!
     end
