@@ -114,7 +114,7 @@ Usage: #{$program_name} [OPTION]...
   -f <FILENAME>, --configuration-file=<FILENAME>
                        Specify the configuration file to use.
                        (default: #{$configuration_file_pretty})
-  -r, --reconnect-after=<SECONDS>
+  -r <SECONDS>, --reconnect-after=<SECONDS>
                        Reconnect to the server if <SECONDS> seconds has
                        elapsed since the last connection.
 EOF
@@ -161,7 +161,10 @@ rescue
 
 end
 
-$reconnect_after = nil if $keep
+if $keep and $reconnect_after
+  puts "There should be no reason to specify --reconnect-after with --keep"
+  exit
+end
 
 # ----------------------------------------------------------------------
 
