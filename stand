@@ -114,6 +114,9 @@ Usage: #{$program_name} [OPTION]...
   -f <FILENAME>, --configuration-file=<FILENAME>
                        Specify the configuration file to use.
                        (default: #{$configuration_file_pretty})
+  -r, --reconnect-after=<SECONDS>
+                       Reconnect to the server if <SECONDS> seconds has
+                       elapsed since the last connection.
 EOF
 
 end
@@ -122,12 +125,13 @@ options = GetoptLong.new(
   [ "--help", "-h", GetoptLong::NO_ARGUMENT ],
   [ "--keep", "-k", GetoptLong::NO_ARGUMENT ],
   [ "--no-ssl-verify", "-n", GetoptLong::NO_ARGUMENT ],
-  [ "--configuration-file", "-f", GetoptLong::REQUIRED_ARGUMENT ]
+  [ "--configuration-file", "-f", GetoptLong::REQUIRED_ARGUMENT ],
+  [ "--reconnect-after", "-r",  GetoptLong::REQUIRED_ARGUMENT ]
 )
 
 $keep = false
 $ssl_verify = true
-$break_every = nil
+$reconnect_after = nil
 
 begin
 
@@ -143,6 +147,8 @@ begin
       $ssl_verify = false
     when "--configuration-file"
       $configuration_file = arg
+    when "--reconnect-after"
+      $reconnect_after = Float(arg)
     end
 
   end
@@ -154,6 +160,8 @@ rescue
   exit
 
 end
+
+$reconnect_after = nil if $keep
 
 # ----------------------------------------------------------------------
 
@@ -248,82 +256,96 @@ class POP3Account
 
     i = 0
     total = 0
-    delete_list = []
 
     $db.transaction do |db|
-      
-      pop3_class.start(@host, @port, @user, @password, @use_apop) do |pop|
-        
-        if pop.mails.empty?
-          puts "  No mail."
-          return
-        else
-          total = pop.n_mails
-          plural = total != 1
-          puts "  There " + (plural ? "are" : "is") + " #{total} message" +
-            (plural ? "s" : "") + " available."
-        end
-        
-        pop.each_mail do |m|
+    
+      while true
+
+        delete_list = []
+  
+        pop3_class.start(@host, @port, @user, @password, @use_apop) do |pop|
           
-          i += 1
+          connected_at = Time.now
           
-          print "  Retrieving message #{i} of #{total} [#{m.length} bytes]: "
-          
-          uidl = m.uidl
-          if db_has_uidl? db, uidl
-            if $keep
-              puts " [Skipping]"
+          if i == 0 and not pop.mails.empty?
+            total = pop.n_mails
+            plural = total != 1
+            puts "  There " + (plural ? "are" : "is") + " #{total} message" +
+              (plural ? "s" : "") + " available."
+          end
+
+          if i >= total
+            if i == 0
+              puts "  No mail."
+            end
+            return
+          end
+
+          pop.each_mail do |m|
+            
+            i += 1
+            
+            print "  Retrieving message #{i} of #{total} [#{m.length} bytes]: "
+            
+            uidl = m.uidl
+            if db_has_uidl? db, uidl
+              if $keep
+                puts " [Skipping]"
+              else
+                puts " [Skipping and deleting]"
+                m.delete
+                delete_list.push uidl
+              end
+              next
+            end
+            
+            progress = Progress.new(m.size)
+            
+            # Fetch the message...
+            message = ""
+            m.pop do |chunk|
+              chunk.gsub!(/\r\n/, "\n")
+              message << chunk
+              progress.increase_by chunk.length
+            end
+            
+            # Deliver the message...
+            Kernel.open("|-", "w+") do |f|
+              if f
+                f.write message
+              else
+                begin
+                  exec @command
+                rescue
+                  raise "Couldn't exec \"#{@command}\": #{$!}\n"
+                end
+              end
+            end
+            
+            if $?.success?
+              add_uidl_to_db db, uidl
             else
-              puts " [Skipping and deleting]"
+              raise "The command \"#{@command}\" failed with exit code #{$?.exitstatus}"
+            end
+            
+            # We've successfully dealt with the message now...
+            unless $keep
+              print " [Deleting]"
               m.delete
               delete_list.push uidl
             end
-            next
-          end
-          
-          progress = Progress.new(m.size)
-          
-          # Fetch the message...
-          message = ""
-          m.pop do |chunk|
-            chunk.gsub!(/\r\n/, "\n")
-            message << chunk
-            progress.increase_by chunk.length
-          end
-          
-          # Deliver the message...
-          Kernel.open("|-", "w+") do |f|
-            if f
-              f.write message
-            else
-              begin
-                exec @command
-              rescue
-                raise "Couldn't exec \"#{@command}\": #{$!}\n"
-              end
+            puts
+            
+            if $reconnect_after and Time.now - connected_at >= $reconnect_after
+              break
             end
+            
           end
-          
-          if $?.success?
-            add_uidl_to_db db, uidl
-          else
-            raise "The command \"#{@command}\" failed with exit code #{$?.exitstatus}"
-          end
-          
-          # We've successfully dealt with the message now...
-          unless $keep
-            print " [Deleting]"
-            m.delete
-            delete_list.push uidl
-          end
-          puts
-          
         end
+        
+        delete_uidls_from_db db, delete_list
+        
       end
-      
-      delete_uidls_from_db db, delete_list
-      
     end
   end
 
