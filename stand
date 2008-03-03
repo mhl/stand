@@ -260,47 +260,45 @@ class POP3Account
     i = 0
     total = 0
 
-    $db.transaction do |db|
-    
-      while true
+    while true
 
-        delete_list = []
+      delete_list = []
   
-        pop3_class.start(@host, @port, @user, @password, @use_apop) do |pop|
+      pop3_class.start(@host, @port, @user, @password, @use_apop) do |pop|
           
-          connected_at = Time.now
+        connected_at = Time.now
           
-          if i == 0 and not pop.mails.empty?
-            total = pop.n_mails
-            plural = total != 1
-            puts "  There " + (plural ? "are" : "is") + " #{total} message" +
-              (plural ? "s" : "") + " available."
-          end
+        if i == 0 and not pop.mails.empty?
+          total = pop.n_mails
+          plural = total != 1
+          puts "  There " + (plural ? "are" : "is") + " #{total} message" +
+            (plural ? "s" : "") + " available."
+        end
 
-          if i >= total
-            if i == 0
-              puts "  No mail."
-            end
-            return
+        if i >= total
+          if i == 0
+            puts "  No mail."
           end
+          return
+        end
 
-          pop.each_mail do |m|
+        pop.each_mail do |m|
             
-            i += 1
+          i += 1
             
-            print "  Retrieving message #{i} of #{total} [#{m.length} bytes]: "
+          print "  Retrieving message #{i} of #{total} [#{m.length} bytes]: "
             
-            uidl = m.uidl
-            if db_has_uidl? db, uidl
-              if $keep
-                puts " [Skipping]"
-              else
-                puts " [Skipping and deleting]"
-                m.delete
-                delete_list.push uidl
-              end
-              next
+          uidl = m.uidl
+          if db_has_uidl? $db, uidl
+            if $keep
+              puts " [Skipping]"
+            else
+              puts " [Skipping and deleting]"
+              m.delete
+              delete_list.push uidl
             end
+            next
+          end
             
             progress = Progress.new(m.size)
             
@@ -326,7 +324,9 @@ class POP3Account
             end
             
             if $?.success?
-              add_uidl_to_db db, uidl
+              unless add_uidl_to_db $db, uidl
+                raise "Adding the UIDL to the database failed."
+              end
             else
               raise "The command \"#{@command}\" failed with exit code #{$?.exitstatus}"
             end
@@ -337,18 +337,17 @@ class POP3Account
               m.delete
               delete_list.push uidl
             end
-            puts
-            
-            if $reconnect_after and Time.now - connected_at >= $reconnect_after
-              break
-            end
-            
+          puts
+          
+          if $reconnect_after and Time.now - connected_at >= $reconnect_after
+            break
           end
+          
         end
-        
-        delete_uidls_from_db db, delete_list
-        
       end
+      
+      delete_uidls_from_db $db, delete_list
+      
     end
   end
 
@@ -362,9 +361,7 @@ begin
 
   $db = SQLite3::Database.new($uidl_database_filename)
 
-  $db.transaction do |d|
-    d.execute( "CREATE TABLE IF NOT EXISTS uidls ( uidl TEXT PRIMARY KEY )" )
-  end
+  $db.execute( "CREATE TABLE IF NOT EXISTS uidls ( uidl TEXT PRIMARY KEY )" )
 
   # Read in the configuration file...
 
