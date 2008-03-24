@@ -263,32 +263,33 @@ class POP3Account
     while true
 
       delete_list = []
-  
+
       pop3_class.start(@host, @port, @user, @password, @use_apop) do |pop|
           
         connected_at = Time.now
-          
+        
         if i == 0 and not pop.mails.empty?
           total = pop.n_mails
           plural = total != 1
           puts "  There " + (plural ? "are" : "is") + " #{total} message" +
             (plural ? "s" : "") + " available."
         end
-
+        
         if i >= total
           if i == 0
             puts "  No mail."
           end
           return
         end
-
+        
         pop.each_mail do |m|
-            
+          
           i += 1
-            
+          
           print "  Retrieving message #{i} of #{total} [#{m.length} bytes]: "
-            
+          
           uidl = m.uidl
+          $db.transaction
           if db_has_uidl? $db, uidl
             if $keep
               puts " [Skipping]"
@@ -299,44 +300,47 @@ class POP3Account
             end
             next
           end
-            
-            progress = Progress.new(m.size)
-            
-            # Fetch the message...
-            message = ""
-            m.pop do |chunk|
-              chunk.gsub!(/\r\n/, "\n")
-              message << chunk
-              progress.increase_by chunk.length
-            end
-            
-            # Deliver the message...
-            Kernel.open("|-", "w+") do |f|
-              if f
-                f.write message
-              else
-                begin
-                  exec @command
-                rescue
-                  raise "Couldn't exec \"#{@command}\": #{$!}\n"
-                end
-              end
-            end
-            
-            if $?.success?
-              unless add_uidl_to_db $db, uidl
-                raise "Adding the UIDL to the database failed."
-              end
+          
+          progress = Progress.new(m.size)
+          
+          # Fetch the message...
+          message = ""
+          m.pop do |chunk|
+            chunk.gsub!(/\r\n/, "\n")
+            message << chunk
+            progress.increase_by chunk.length
+          end
+          
+          # Deliver the message...
+          Kernel.open("|-", "w+") do |f|
+            if f
+              f.write message
             else
-              raise "The command \"#{@command}\" failed with exit code #{$?.exitstatus}"
+              begin
+                exec @command
+              rescue
+                raise "Couldn't exec \"#{@command}\": #{$!}\n"
+              end
             end
-            
-            # We've successfully dealt with the message now...
-            unless $keep
-              print " [Deleting]"
-              m.delete
-              delete_list.push uidl
+          end
+          
+          if $?.success?
+            unless add_uidl_to_db $db, uidl
+              $db.rollback
+              raise "Adding the UIDL to the database failed."
             end
+          else
+            $db.rollback
+            raise "The command \"#{@command}\" failed with exit code #{$?.exitstatus}"
+          end
+          $db.commit
+          
+          # We've successfully dealt with the message now...
+          unless $keep
+            print " [Deleting]"
+            m.delete
+            delete_list.push uidl
+          end
           puts
           
           if $reconnect_after and Time.now - connected_at >= $reconnect_after
@@ -345,8 +349,10 @@ class POP3Account
           
         end
       end
-      
-      delete_uidls_from_db $db, delete_list
+
+      $db.transaction do |db|
+        delete_uidls_from_db db, delete_list
+      end
       
     end
   end
