@@ -1,0 +1,99 @@
+.TH STAND 1
+.\"
+.\" stand.1: manual page for stand
+.\"
+.\" Copyright Mark Longair (c) 2002, 2005, 2008 Reuben Thomas (c) 2005-2007. All rights reserved.
+.\"
+.\" Version 0.9
+.\"
+
+.\" Text begins
+.SH NAME
+stand \- A simple POP3 client
+.SH SYNOPSIS
+.B stand
+[\fIOPTION\fR]...
+.SH DESCRIPTION
+.PP
+This is a simple POP3 client that will fetch messages from POP3
+servers and deliver then to a local delivery agent (LDA) such as
+procmail or maildrop.  This client supports APOP and
+SSL/TLS-wrapped POP3.  UIDL caching is implemented to avoid
+downloading the same message multiple times.
+.SH OPTIONS
+.TP
+\fB\-h\fR, \fB\-\-help\fR
+Display a usage message and exit.
+.TP
+\fB\-k\fR, \fB\-\-keep\fR
+Don't delete messages on server.
+.TP
+\fB\-n\fR, \fB\-\-no\-ssl\-verify\fR
+Don't verify the peer's certificate when using SSL.
+.TP
+\fB\-f\fR \fIFILENAME\fR, \fB\-\-configuration\-file\fR=\fIFILENAME\fR
+Specify the configuration file to use. (default: ~/.stand.yaml)
+.TP
+\fB\-r\fR \fISECONDS\fR, \fB\-\-reconnect\-after\fR=\fISECONDS\fR
+Reconnect to the server if SECONDS seconds has elapsed since
+the last connection.  This is useful if you are using a slow or
+unreliable connection and downloading many messages, since the
+remote mailspool will be updated on each reconnection.
+.SH FILES
+.TP
+.B ~/.stand.yaml
+This is the configuration file for stand, which contains details
+of the POP3 accounts to be checked, and the LDA (Local Delivery
+Agent) to be used for each.  This file is in YAML format and
+consists of a sequence of mappings.  The details for each
+account must be separated by a line with a single '-', and the
+settings for each account must be consistently indented with one
+or more spaces.  An example is given below:
+.nf
+
+   # The 'Host', 'User' and 'Pass' lines are required.  The
+   # 'SSL' option defaults to "no", the 'APOP' option defaults
+   # to "no" and 'Command' defaults to "procmail -f-".  'Port'
+   # defaults to 110 (or 995 when SSL is turned on).
+   -
+     Host: secure.mythic-beasts.com
+     SSL: yes
+     User: mark
+     Pass: not-my-password
+     Command: procmail -f-
+   -
+     Host: localhost
+     User: a@b.c
+     Pass: not-my-password-either
+     Command: procmail -f-
+     APOP: yes
+.fi
+.TP
+.B ~/.stand-uidls
+This file is an SQLite database which stores UIDLs of messages
+that have been downloaded from POP3 servers by stand, but which
+have not yet been deleted.
+.SH AUTHOR
+Mark Longair <mhl@pobox.com>, Reuben Thomas <rrt@sc3d.org>
+.SH VERSION
+Version 0.9
+.SH COPYING
+.PP
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+.PP
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+.PP
+You should have received a copy of the GNU General Public License
+along with this program.  If not, see <http://www.gnu.org/licenses/>. 
+.PP
+On Debian systems, the complete text of the GNU General
+Public License version 3 can be found in `/usr/share/common-licenses/GPL-3'.
+.PP
+The Debian packaging is (C) 2008, Mark Longair <mhl@pobox.com> and
+is licensed under the GPL, see above.

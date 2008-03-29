@@ -1,0 +1,17 @@
+Source: stand
+Section: mail
+Priority: optional
+Maintainer: Mark Longair <mhl@pobox.com>
+Build-Depends: debhelper (>= 5)
+Standards-Version: 3.7.2
+
+Package: stand
+Architecture: all
+Depends: ruby1.8, libruby1.8, libopenssl-ruby, libsqlite3-ruby, base-files (>= 4.01)
+Description: A simple POP3 client
+ This is a simple POP3 client that will fetch messages from
+ POP3 servers and deliver then to a local delivery
+ agent (LDA) such as procmail or maildrop.  This client
+ supports APOP and SSL/TLS-wrapped POP3.  UIDL caching is
+ implemented to avoid downloading the same message multiple
+ times.
