@@ -425,18 +425,15 @@ begin
       puts "Checking account: #{account}"
       puts "  Piping mail to the command: #{account.command}"
       account.fetch_all
-    rescue Interrupt => i_exception
-      puts "Interrupt Exception from fetch_all, backtrace:\n" + i_exception.backtrace.join("\n")
+    rescue Interrupt
+      puts "Interrupt received: exiting."
+      break
     rescue
       puts "  Error fetching mail from account `#{account}': " + $!
     end
 
   end
 
-rescue Interrupt
-  puts "Interrupt received: exiting."
-
 rescue
   puts "Fatal error: " + $!
-
 end
