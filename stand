@@ -427,9 +427,11 @@ begin
       puts "  Piping mail to the command: #{account.command}"
       account.fetch_all
     rescue Interrupt
+      $db.rollback if $db.transaction_active?
       puts "Interrupt received: exiting."
       break
     rescue
+      $db.rollback if $db.transaction_active?
       puts "  Error fetching mail from account `#{account}': " + $!
     end
 
