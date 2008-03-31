@@ -298,6 +298,7 @@ class POP3Account
               m.delete
               delete_list.push uidl
             end
+            $db.commit
             next
           end
           
