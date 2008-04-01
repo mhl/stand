@@ -109,7 +109,7 @@ def usage
 Usage: #{$program_name} [OPTION]...
 
   -h, --help           Display this message and exit.
-  -k, --keep           Don\'t delete messages on server.
+  -d, --delete         Delete messages on server after fetching.
   -n, --no-ssl-verify  Don\'t verify the peer\'s certificate when using SSL.
   -f <FILENAME>, --configuration-file=<FILENAME>
                        Specify the configuration file to use.
@@ -123,13 +123,13 @@ end
 
 options = GetoptLong.new(
   [ "--help", "-h", GetoptLong::NO_ARGUMENT ],
-  [ "--keep", "-k", GetoptLong::NO_ARGUMENT ],
+  [ "--delete", "-d", GetoptLong::NO_ARGUMENT ],
   [ "--no-ssl-verify", "-n", GetoptLong::NO_ARGUMENT ],
   [ "--configuration-file", "-f", GetoptLong::REQUIRED_ARGUMENT ],
   [ "--reconnect-after", "-r",  GetoptLong::REQUIRED_ARGUMENT ]
 )
 
-$keep = false
+$keep = true
 $ssl_verify = true
 $reconnect_after = nil
 
@@ -141,8 +141,8 @@ begin
     when "--help"
       usage
       exit
-    when "--keep"
-      $keep = true
+    when "--delete"
+      $keep = false
     when "--no-ssl-verify"
       $ssl_verify = false
     when "--configuration-file"
