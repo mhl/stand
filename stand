@@ -337,7 +337,9 @@ class POP3Account
           $db.commit
           
           # We've successfully dealt with the message now...
-          unless $keep
+          if $keep
+            print " [Fetched]"
+          else
             print " [Deleting]"
             m.delete
             delete_list.push uidl
