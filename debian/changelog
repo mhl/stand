@@ -1,3 +1,21 @@
+stand (0.94) unstable; urgency=low
+
+  * There's no reason any more to give a complete traceback on
+    SIGINT.
+  * Fixed an error in the transaction logic.
+  * Also rollback if the transaction is still active when we're
+    handling exceptions.
+  * Change the --keep option for a --delete option (so the default
+    is now not to delete messages after fetching them.)
+  * Print "[Fetched]" encouragingly when a message has been
+    successfully delivered, for clarity for very short messages.
+  * Remove the base-files dependency (which was there to ensure
+    that /usr/share/common-licenses/GPL-3 was there)
+  * Made the square-bracketed status messages more consistent.
+  * An initial version of a script to help with making releases
+
+ -- Mark Longair <mhl@pobox.com>  Fri, 04 Apr 2008 21:28:24 +0100
+
 stand (0.9) unstable; urgency=low
 
   * Initial Release.
