@@ -294,7 +294,7 @@ class POP3Account
             if $keep
               puts " [Skipping]"
             else
-              puts " [Skipping and deleting]"
+              puts " [Skipping, Deleting]"
               m.delete
               delete_list.push uidl
             end
@@ -340,7 +340,7 @@ class POP3Account
           if $keep
             print " [Fetched]"
           else
-            print " [Deleting]"
+            print " [Fetched, Deleting]"
             m.delete
             delete_list.push uidl
           end
