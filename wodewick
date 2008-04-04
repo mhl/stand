@@ -1,0 +1,265 @@
+#!/usr/bin/ruby -w
+
+# This is a simple script to automate some of the common checks and
+# tasks in building a new Debian package of stand.  I suggest that you
+# initially run:
+# 
+#    ./wodewick --changelog <PREVIOUS-VERSION>
+# 
+# where <PREVIOUS-VERSION> was the version before, and add the output
+# to debian/changelog
+# 
+# Then run ./wodewick --release or ./wodewick --build
+# 
+# FIXME: add these to the build dependencies:
+# 
+#   ruby1.8
+#   libruby1.8
+#   dpkg-dev
+#   perl
+# 
+# FIXME: the .deb file check is actually a pain, since after running
+#    build, that check will fail.
+
+require 'getoptlong'
+
+def git_current_branch
+  `git branch` =~ /\* ([^\n]+)/m
+  $1
+end
+
+def git_diff_from_origin_master
+  unless system("git fetch origin master")
+    raise "'git fetch origin master'"
+  end
+  # Now compare our current tree to FETCH_HEAD:
+  `git diff FETCH_HEAD`
+end
+
+def git_tracked_repositories
+  return `git remote`.split("\n")
+end
+
+def last_version_in_changelog
+  return `perl -e 'use Dpkg::Changelog qw(parse_changelog); print parse_changelog->{version}'`
+end
+
+def package_name_in_changelog
+  return `perl -e 'use Dpkg::Changelog qw(parse_changelog); print parse_changelog->{source}'`
+end
+
+def maintainer_email
+  `egrep ^Maintainer: debian/control`.gsub(/^Maintainer: (.*)\n/,'\1')
+end
+
+def wrap(text)
+  result = ""
+  columns = 64
+  while (text.length > columns) && (text.length > 0)
+    index = (text[0...columns] =~ /\s+(\S*?)$/u)
+    unless index
+      if columns < text.length
+        index = columns
+      else
+        index = text.length
+      end
+    end
+    result += text[0...index]
+    text = text[index..-1].gsub( /^\s*/um, '' )
+    if text.length > 0
+      result += "\n"
+    end
+  end
+  result + text
+end
+
+def indent_change(text)
+  result = ""
+  lines = text.split("\n")
+  lines.each_index do |i|
+    if i == 0
+      result += "  * #{lines[i]}\n"
+    else
+      result += "    #{lines[i]}\n"
+    end
+  end
+  result
+end
+
+def changes_since(commit)
+  result = "#{$package_name} (#{$new_version}) unstable; urgency=low\n\n"
+  current_author = nil
+  lines = `git log --no-merges #{commit}..HEAD | git-shortlog -e`.split("\n")
+  lines.each do |line|
+    if line =~ /^([^ ].*) \(\d+\):$/
+      current_author = $1
+    elsif line =~ /^\s*$/
+    elsif line =~ /^\s{6}(.*)/
+      wrapped = wrap($1)
+      formatted = indent_change(wrapped)
+      result += formatted
+    else
+      raise "Failed to parse a line in the log: '#{line}'"
+    end
+  end
+  result + "\n -- #{$maintainer_email} #{`date -R`}\n"
+end
+
+def usage
+  print <<EOF
+Usage: wodewick [OPTION]...
+
+  -h, --help           Display this message and exit
+  -c, --check          Run pre-packaging checks
+  -b, --build          Run pre-packaging checks and build the Debian package
+  -r, --release        Run pre-packaging checks, build the Debian package
+                       and release (tag, push tags and upload)
+  -l, --changelog <SINCE>
+                       Generate changelog entries since commit <SINCE>
+                       in a format suitable for a Debian changelog.
+
+EOF
+end
+
+$origin_exists = nil
+$new_version = nil
+$package_name = nil
+$mantainer_email = nil
+
+def check
+
+  unless system("git --version > /dev/null")
+    raise "Couldn't find git on your $PATH"
+  end
+  
+  unless FileTest.exist?("debian/rules")
+    raise "Must be run within a Debian package source directory"   
+  end
+
+  unless FileTest.exist?(".git")
+    raise "This must be the top level of a git repository"
+  end
+
+  current_branch = git_current_branch
+  unless current_branch == "master"
+    raise "We're on the branch '#{current_branch}' instead of 'master'"
+  end
+
+  $origin_exists = git_tracked_repositories.include? "origin"
+
+  # We only run the difference again origin/master if there's a
+  # tracked repository called 'origin'
+  if $origin_exists
+
+    differences = git_diff_from_origin_master
+    unless differences.empty?
+      raise "There were differences between the working tree and " +
+        "origin/master\nTo see them run: git diff FETCH_HEAD"
+    end
+
+  end
+
+  $new_version = last_version_in_changelog
+  $package_name = package_name_in_changelog
+  $maintainer_email = maintainer_email
+
+  # If there's a deb with that version in the parent directory, it's a
+  # fair bet that we've forgotten to update the changelog...
+
+  debs = Dir.glob("../#{$package_name}_#{$new_version}_*.deb")
+  unless debs.empty?
+    message = "The following package files were found:\n  "
+    message += debs.join("\n  ")
+    message += "\nDid you forget to update debian/changelog ?"
+    raise message
+  end
+
+end
+
+def build
+
+  unless system("dpkg-buildpackage","-rfakeroot")
+    raise "Building the package failed"
+  end
+  
+end
+
+def release
+
+  # Tag this relase:
+
+  unless system("git tag -s version-#{$new_version}")
+    raise "Failed to tag this commit as version-#{$new_version}"
+  end
+
+  # And optionally push those tags:
+  
+  if $origin_exists
+    unless system("git push --tags")
+      raise "Failed to push tags to the origin"
+    end
+  end  
+
+  open("last-released-version","w") do |f|
+    f.print $new_version
+  end
+
+end
+
+begin
+  
+  options = GetoptLong.new(
+    [ "--help", "-h", GetoptLong::NO_ARGUMENT ],
+    [ "--check", "-c", GetoptLong::NO_ARGUMENT ],
+    [ "--build", "-b", GetoptLong::NO_ARGUMENT ],
+    [ "--release", "-r", GetoptLong::NO_ARGUMENT ],
+    [ "--changelog", "-l", GetoptLong::REQUIRED_ARGUMENT ]
+  )
+
+  help_option = false
+  check_option = false
+  build_option = false
+  release_option = false
+  changelog_option = nil
+
+  options.each do |opt,arg|
+    case opt
+    when "--help"
+      help_option = true
+    when "--check"
+      check_option = true
+    when "--build"
+      build_option = true
+    when "--release"
+      release_option = true
+    when "--changelog"
+      changelog_option = arg
+    end
+  end
+
+  unless (help_option or check_option or build_option or release_option or changelog_option)
+    raise "You must specify an option"
+  end
+  
+  # --release subsumes --build, which subsumes --check:
+
+  if help_option
+    usage
+  elsif changelog_option
+    check
+    s = changes_since(changelog_option)
+    puts s
+  elsif release_option
+    check
+    build
+    release
+  elsif build_option
+    check
+    build
+  elsif check_option
+    check
+  end
+
+rescue Exception => e
+  puts "Failed: #{e}"
+end
