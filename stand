@@ -428,9 +428,11 @@ begin
       puts "Checking account: #{account}"
       puts "  Piping mail to the command: #{account.command}"
       account.fetch_all
-    rescue Interrupt
+    rescue Interrupt => e
       $db.rollback if $db.transaction_active?
       puts "Interrupt received: exiting."
+      puts "  The exception was: #{$!}, with backtrace:"
+      puts "    " + e.backtrace.join("\n    ")
       break
     rescue
       $db.rollback if $db.transaction_active?
