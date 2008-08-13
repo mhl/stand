@@ -36,63 +36,6 @@ require 'openssl'
 require 'timeout'
 require 'sqlite3'
 
-# FIXME: I don't understand the recent changes that have been made to
-# InternetMessageIO and broke the old version of these two classes, so
-# while this seems to work at the moment, I expect it to break at any
-# time.
-
-module Net
-
-  class SSLIO < InternetMessageIO
-
-    def SSLIO.old_open(addr, port, open_timeout = 30, read_timeout = 30, debug_output = nil)
-
-      tcp_socket = timeout(open_timeout) { TCPsocket.new(addr, port) }
-
-      @ssl_context = OpenSSL::SSL::SSLContext.new()
-
-      if $ssl_verify
-        @ssl_context.ca_path = '/etc/ssl/certs'
-        @ssl_context.verify_mode = OpenSSL::SSL::VERIFY_PEER
-      else
-        @ssl_context.verify_mode = OpenSSL::SSL::VERIFY_NONE
-      end
-
-      socket = OpenSSL::SSL::SSLSocket.new(tcp_socket, @ssl_context)
-
-      socket.connect
-
-      io = new(socket)
-      io.read_timeout = read_timeout
-      io.debug_output = debug_output
-      io
-
-    end
-
-  end
-
-end
-
-# ----------------------------------------------------------------------
-#
-# POP3 over SSL class
-
-module Net
-
-  class POP3s < POP3
-
-    def self.port
-      '995'
-    end
-
-    def POP3s.socket_type
-      SSLIO
-    end
-
-  end
-
-end
-
 # ----------------------------------------------------------------------
 #
 # Command line argument parsing...
@@ -247,14 +190,6 @@ class POP3Account
 
   def fetch_all
 
-    # Choose correct POP class
-
-    if @use_ssl
-      pop3_class = Net::POP3s
-    else
-      pop3_class = Net::POP3
-    end
-
     # Process all the messages
 
     i = 0
@@ -264,7 +199,10 @@ class POP3Account
 
       delete_list = []
 
-      pop3_class.start(@host, @port, @user, @password, @use_apop) do |pop|
+      pop3 = Net::POP3.new @host, @port, @apop
+      pop3.enable_ssl(OpenSSL::SSL::VERIFY_NONE, nil, @port) if @use_ssl
+
+      pop3.start(@user, @password) do |pop|
           
         connected_at = Time.now
         
