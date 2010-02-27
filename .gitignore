@@ -3,4 +3,6 @@
 /configure-stamp
 /debian/stand
 /debian/files
+/debian/stand.debhelper.log
+/debian/stand.substvars
 /last-released-version
