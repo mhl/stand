@@ -13,8 +13,8 @@
 #    GNU General Public License for more details.
 #
 #    You should have received a copy of the GNU General Public License
-#    along with this program.  If not, see <http://www.gnu.org/licenses/>. 
-# 
+#    along with this program.  If not, see <http://www.gnu.org/licenses/>.
+#
 # This is a simple script for fetching mail from POP3 accounts.
 # On a Debian system, you'll need the following packages:
 #
@@ -163,7 +163,7 @@ class POP3Account
   def to_s
     "#{@user} at #{@host}:#{@port}#{ @use_ssl ? ' (SSL)' : ''}"
   end
-  
+
   def account_uidl(uidl)
     "#{@user}@#{@host}:#{@port}##{uidl}"
   end
@@ -211,29 +211,29 @@ class POP3Account
       delete_list = []
 
       Net::POP3.start(@host, @port, @user, @password, @use_apop) do |pop|
-          
+
         connected_at = Time.now
-        
+
         if i == 0 and not pop.mails.empty?
           total = pop.n_mails
           plural = total != 1
           puts "  There " + (plural ? "are" : "is") + " #{total} message" +
             (plural ? "s" : "") + " available."
         end
-        
+
         if i >= total
           if i == 0
             puts "  No mail."
           end
           return
         end
-        
+
         pop.each_mail do |m|
-          
+
           i += 1
-          
+
           print "  Retrieving message #{i} of #{total} [#{m.length} bytes]: "
-          
+
           uidl = m.uidl
           $db.transaction
           if db_has_uidl? $db, uidl
@@ -247,9 +247,9 @@ class POP3Account
             $db.commit
             next
           end
-          
+
           progress = Progress.new(m.size)
-          
+
           # Fetch the message...
           message = ""
           m.pop do |chunk|
@@ -257,7 +257,7 @@ class POP3Account
             message << chunk
             progress.increase_by chunk.length
           end
-          
+
           # Deliver the message...
           Kernel.open("|-", "w+") do |f|
             if f
@@ -270,7 +270,7 @@ class POP3Account
               end
             end
           end
-          
+
           if $?.success?
             unless add_uidl_to_db $db, uidl
               $db.rollback
@@ -281,7 +281,7 @@ class POP3Account
             raise "The command \"#{@command}\" failed with exit code #{$?.exitstatus}"
           end
           $db.commit
-          
+
           # We've successfully dealt with the message now...
           if $keep
             print " [Fetched]"
@@ -291,18 +291,18 @@ class POP3Account
             delete_list.push uidl
           end
           puts
-          
+
           if $reconnect_after and Time.now - connected_at >= $reconnect_after
             break
           end
-          
+
         end
       end
 
       $db.transaction do |db|
         delete_uidls_from_db db, delete_list
       end
-      
+
     end
   end
 
