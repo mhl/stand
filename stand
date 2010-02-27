@@ -98,14 +98,14 @@ begin
 
 rescue
 
-  print "Bad command line option: " + $! + "\n"
+  STDERR.print "Bad command line option: #{$!}\n"
   usage
   exit
 
 end
 
 if $keep and $reconnect_after
-  puts "There should be no reason to specify --reconnect-after with --keep"
+  STDERR.puts "There should be no reason to specify --reconnect-after with --keep"
   exit
 end
 
@@ -335,7 +335,7 @@ begin
     valid_account_properties = ['Host', 'User', 'Pass', 'Command', 'SSL', 'APOP', 'Port']
 
     (a.keys - valid_account_properties).each do |property|
-      puts "Warning: in account #{i + 1}, the unknown account property `#{property}' was ignored."
+      STDERR.puts "Warning: in account #{i + 1}, the unknown account property `#{property}' was ignored."
     end
 
     ['Host', 'User', 'Pass'].each do |required|
@@ -376,17 +376,17 @@ begin
       account.fetch_all
     rescue Interrupt => e
       $db.rollback if $db.transaction_active?
-      puts "Interrupt received: exiting."
-      puts "  The exception was: #{$!}, with backtrace:"
-      puts "    " + e.backtrace.join("\n    ")
+      STDERR.puts "Interrupt received: exiting."
+      STDERR.puts $!.backtrace
       break
     rescue
       $db.rollback if $db.transaction_active?
-      puts "  Error fetching mail from account `#{account}': " + $!
+      STDERR.puts "  Error fetching mail from account `#{account}': #{$!}"
+      STDERR.puts $!.backtrace
     end
 
   end
 
 rescue
-  puts "Fatal error: " + $!
+  STDERR.puts "Fatal error: #{$!}"
 end
