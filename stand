@@ -190,6 +190,17 @@ class POP3Account
 
   def fetch_all
 
+    if @use_ssl
+      if @ssl_verify
+        ssl_options = OpenSSL::SSL::VERIFY_PEER
+      else
+        ssl_options = OpenSSL::SSL::VERIFY_NONE
+      end
+      Net::POP3.enable_ssl(ssl_options)
+   else
+      Net::POP3.disable_ssl
+    end
+
     # Process all the messages
 
     i = 0
@@ -199,10 +210,7 @@ class POP3Account
 
       delete_list = []
 
-      pop3 = Net::POP3.new @host, @port, @apop
-      pop3.enable_ssl(OpenSSL::SSL::VERIFY_NONE, nil, @port) if @use_ssl
-
-      pop3.start(@user, @password) do |pop|
+      Net::POP3.start(@host, @port, @user, @password, @use_apop) do |pop|
           
         connected_at = Time.now
         
