@@ -389,4 +389,5 @@ begin
 
 rescue
   STDERR.puts "Fatal error: #{$!}"
+  STDERR.puts $!.backtrace
 end
