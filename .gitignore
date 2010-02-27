@@ -2,3 +2,4 @@
 build-stamp
 configure-stamp
 debian/stand
+debian/files
