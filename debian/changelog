@@ -1,3 +1,10 @@
+stand (0.96) unstable; urgency=low
+
+  * Update the release script
+  * Update the web page
+
+ -- Mark Longair <mhl@pobox.com>  Sat, 27 Feb 2010 11:25:17 +0000
+
 stand (0.95) unstable; urgency=low
 
   * Switch to using the Net::POP3 class's built-in SSL support,
