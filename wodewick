@@ -41,11 +41,11 @@ def git_tracked_repositories
 end
 
 def last_version_in_changelog
-  return `perl -e 'use Dpkg::Changelog qw(parse_changelog); print parse_changelog->{version}'`
+  return `dpkg-parsechangelog | egrep ^Version: | sed 's/^Version: //'`
 end
 
 def package_name_in_changelog
-  return `perl -e 'use Dpkg::Changelog qw(parse_changelog); print parse_changelog->{source}'`
+  return `dpkg-parsechangelog | egrep ^Source: | sed 's/^Source: //'`
 end
 
 def maintainer_email
@@ -160,8 +160,17 @@ def check
   end
 
   $new_version = last_version_in_changelog
+  unless $new_version
+    raise "Failed to find latest version from the changelog"
+  end
   $package_name = package_name_in_changelog
+  unless $package_name
+    raise "Failed to find package name from the changelog"
+  end
   $maintainer_email = maintainer_email
+  unless $maintainer_email
+    raise "Failed to find the maintainer's name and email from the control file"
+  end
 
   # If there's a deb with that version in the parent directory, it's a
   # fair bet that we've forgotten to update the changelog...
