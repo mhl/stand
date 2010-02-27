@@ -1,4 +1,4 @@
-#!/usr/bin/ruby
+#!/usr/bin/ruby1.9.1
 #
 # Copyright Mark Longair (c) 2002, 2005, 2008 Reuben Thomas (c) 2005-2007.
 #
@@ -18,10 +18,10 @@
 # This is a simple script for fetching mail from POP3 accounts.
 # On a Debian system, you'll need the following packages:
 #
-#   ruby
-#   libruby
-#   libopenssl-ruby
-#   libsqlite3-ruby
+#   ruby1.9.1
+#   libruby1.9.1
+#   libopenssl-ruby1.9.1
+#   libsqlite3-ruby1.9.1
 #
 # See http://mythic-beasts.com/~mark/software/stand/
 # for further remarks.
