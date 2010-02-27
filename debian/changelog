@@ -5,6 +5,8 @@ stand (0.95) unstable; urgency=low
   * Update to depend on Ruby 1.9.1.
   * Output errors and warnings to STDERR
 
+ -- Mark Longair <mhl@pobox.com>  Sat, 27 Feb 2010 10:46:02 +0000
+
 stand (0.94) unstable; urgency=low
 
   * There's no reason any more to give a complete traceback on
