@@ -1,5 +1,5 @@
 *~
-build-stamp
-configure-stamp
-debian/stand
-debian/files
+/build-stamp
+/configure-stamp
+/debian/stand
+/debian/files
