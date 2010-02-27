@@ -41,11 +41,11 @@ def git_tracked_repositories
 end
 
 def last_version_in_changelog
-  return `dpkg-parsechangelog | egrep ^Version: | sed 's/^Version: //'`
+  return `dpkg-parsechangelog | egrep ^Version: | sed 's/^Version: //'`.strip
 end
 
 def package_name_in_changelog
-  return `dpkg-parsechangelog | egrep ^Source: | sed 's/^Source: //'`
+  return `dpkg-parsechangelog | egrep ^Source: | sed 's/^Source: //'`.strip
 end
 
 def maintainer_email
