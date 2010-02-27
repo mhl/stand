@@ -172,6 +172,13 @@ def check
     raise "Failed to find the maintainer's name and email from the control file"
   end
 
+  real_directory_name = `readlink -f .`.strip
+  unless real_directory_name =~ /\/#{$package_name}-#{$new_version}$/
+    raise "The directory path must end in #{$package_name}-#{$new_version} (directory path is: #{real_directory_name})"
+  end
+
+  Dir.chdir(real_directory_name)
+
   # If there's a deb with that version in the parent directory, it's a
   # fair bet that we've forgotten to update the changelog...
 
