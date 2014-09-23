@@ -23,7 +23,7 @@
 #   libopenssl-ruby1.9.1
 #   libsqlite3-ruby1.9.1
 #
-# See http://mythic-beasts.com/~mark/software/stand/
+# See http://sphinx.mythic-beasts.com/~mark/software/stand/
 # for further remarks.
 
 $program_name = 'stand'
